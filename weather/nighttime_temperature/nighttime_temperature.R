@@ -244,6 +244,10 @@ loc_r_daily <- daily %>% dplyr::group_by(location) %>%
                    n = dplyr::n(), .groups = "drop") %>%
   dplyr::mutate(lab = sprintf("r = %.3f\nn = %d", r, n))
 
+# Identical x and y scale: shared limits (same range on both axes) + 1:1 aspect
+lim_sy    <- range(c(paired$mean_mint, paired$nightT), na.rm = TRUE) + c(-0.4, 0.4)
+lim_daily <- range(c(daily$Tmin_day, daily$nightT_day), na.rm = TRUE) + c(-0.4, 0.4)
+
 theme_nt <- ggplot2::theme_bw(base_size = 12) +
   ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
                  legend.position = "bottom")
@@ -255,7 +259,7 @@ p_sy <- ggplot2::ggplot(paired, ggplot2::aes(mean_mint, nightT, color = location
                        linewidth = 0.9, formula = y ~ x, inherit.aes = FALSE,
                        ggplot2::aes(mean_mint, nightT)) +
   ggplot2::geom_point(size = 2.6, alpha = 0.9) +
-  ggplot2::coord_fixed() +
+  ggplot2::coord_fixed(ratio = 1, xlim = lim_sy, ylim = lim_sy, expand = FALSE) +
   ggplot2::annotate("label", x = -Inf, y = Inf, hjust = -0.05, vjust = 1.1,
                     label = sprintf("r = %.3f\nnightT = %.2f*mint + %.1f\noffset = %+.2f C\nn = %d",
                                     sy$r, sy$slope, sy$intercept, sy$offset, sy$n),
@@ -275,7 +279,7 @@ p_daily <- ggplot2::ggplot(daily, ggplot2::aes(Tmin_day, nightT_day)) +
   ggplot2::geom_point(ggplot2::aes(colour = location), size = 0.8, alpha = 0.35) +
   ggplot2::geom_smooth(method = "lm", se = FALSE, colour = "black",
                        linewidth = 0.9, formula = y ~ x) +
-  ggplot2::coord_fixed() +
+  ggplot2::coord_fixed(ratio = 1, xlim = lim_daily, ylim = lim_daily, expand = FALSE) +
   ggplot2::annotate("label", x = -Inf, y = Inf, hjust = -0.05, vjust = 1.1,
                     label = sprintf("r = %.3f\nnightT = %.2f*Tmin + %.1f\noffset = %+.2f C\nn = %d days",
                                     dl$r, dl$slope, dl$intercept, dl$offset, dl$n),
@@ -299,7 +303,7 @@ p_multi <- ggplot2::ggplot(daily, ggplot2::aes(Tmin_day, nightT_day)) +
   ggplot2::geom_text(data = loc_r_daily, ggplot2::aes(x = -Inf, y = Inf, label = lab),
                      hjust = -0.1, vjust = 1.15, size = 3, inherit.aes = FALSE) +
   ggplot2::facet_wrap(~location, ncol = 3) +
-  ggplot2::coord_fixed() +
+  ggplot2::coord_fixed(ratio = 1, xlim = lim_daily, ylim = lim_daily, expand = FALSE) +
   ggplot2::labs(x = "Daily minimum temperature, Tmin (C)",
                 y = "Daily dark-period night-time temperature, nightT (C)",
                 title = "Daily Tmin vs dark-period night-time temperature, by location",
