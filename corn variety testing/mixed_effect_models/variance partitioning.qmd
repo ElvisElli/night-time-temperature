@@ -1,0 +1,226 @@
+---
+title: "variance partitioning"
+format: html
+editor: visual
+---
+
+## Load packages
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(nlme)
+library(nlraa)
+library(r2glmm)
+library(asreml)
+library(janitor)
+library(asremlPlus)
+library(biometryassist)
+asreml.options(na.action = na.method(x = "omit"))
+```
+
+#load data
+
+```{r}
+data.org <- read_csv("input/Corn data organized2.csv",   na = c("#N/A", "NA")) %>% 
+  clean_names
+```
+
+```{r}
+data.org <- data.org %>%
+  mutate(crm_group = case_when(
+    crm %in% c(103, 107, 108) ~ "Group_1",
+    crm %in% c(110, 111, 112, 113) ~ "Group_2",
+    crm %in% c(114, 115, 116, 117) ~ "Group_3",
+    crm %in% c(118, 119, 120, 121) ~ "Group_4")) %>%
+  select(location, year, hybrid, sowingdate_doy, crm, yield,
+         week, crm_group, mean_maxt, mean_mint,cum_radn,
+         cum_rain, above_35,week,region) %>%
+  #filter(year != 2020)
+  mutate(sowingdate_doy2 = sowingdate_doy^2)
+
+data.org <- na.omit(data.org)
+data.org <-
+  data.org %>%
+  group_by(year) %>% 
+  mutate(unity = 1:length(year)) %>%
+  ungroup() %>% 
+  mutate(
+    location = as.factor(location),
+    yield = as.numeric(yield),
+    crm_group = as.factor(crm_group),
+    hybrid = factor(hybrid),
+    region= factor(region))
+df <- data.frame(year = rep(2010:2024, each = 467), unity = rep(1:467, 15))
+df <- df %>% left_join(data.org)
+
+
+df <- df %>% 
+  group_by(year) %>%
+  mutate(
+    sowingdate_doy = coalesce(sowingdate_doy, mean(sowingdate_doy, na.rm = TRUE)),
+    crm            = coalesce(crm, mean(crm, na.rm = TRUE)),
+    yield          = coalesce(yield, mean(yield, na.rm = TRUE)),
+    mean_maxt      = coalesce(mean_maxt, mean(mean_maxt, na.rm = TRUE)),
+    mean_mint      = coalesce(mean_mint, mean(mean_mint, na.rm = TRUE)),
+    cum_rain       = coalesce(cum_rain, mean(cum_rain, na.rm = TRUE)),
+    cum_radn       = coalesce(cum_radn, mean(cum_radn, na.rm = TRUE)),
+    sowingdate_doy2= coalesce(sowingdate_doy2, mean(sowingdate_doy2, na.rm = TRUE)),
+    above_35       = coalesce(above_35, mean(above_35, na.rm = TRUE)),
+    location       = ifelse(is.na(location), "no_location", as.character(location)),
+    week           = ifelse(is.na(week), "no_week", as.character(week)),
+    hybrid         = ifelse(is.na(hybrid), "no_hybrid", as.character(hybrid)),
+    crm_group      = ifelse(is.na(crm_group), "no_crm_group", as.character(crm_group)),
+    region      = ifelse(is.na(region), "no_region", as.character(region))) %>%
+  ungroup()
+
+
+df <- df %>% 
+  mutate(
+    location = as.factor(location),
+    yield = as.numeric(yield),
+    crm_group = as.factor(crm_group),
+    hybrid = factor(hybrid),
+    region= factor(region))
+df <- df %>%
+  mutate(year_f = factor(year, levels = 2010:2024),
+         unity_f = factor(unity))
+df <- df %>% arrange(year_f, unity) %>% droplevels()
+
+```
+
+```{r}
+asr1 <- asreml(yield ~  region + sowingdate_doy * crm_group +
+                 above_35 + cum_rain + cum_radn + year,
+                 random =  ~ location + hybrid,
+                 #residual = ~ id(unity):year,
+                 data = df)
+wald(asr1)
+resplot(asr1)
+asr2 <- asreml(yield ~  sowingdate_doy * crm_group +
+                 above_35 + cum_rain + cum_radn + year,
+                 random =  ~ location + hybrid ,
+                 residual = ~ id(unity_f):year_f,
+                 data = df)
+wald(asr2)
+resplot(asr2)
+```
+
+```{r}
+# mod_emm1 <- lme(
+#   yield ~  region + sowingdate_doy * crm_group +
+#     above_35 + cum_rain + cum_radn + year,
+#   random = ~1 | location,
+#   weights = varIdent(form = ~1 | region),
+#   data = data.org)
+# anova(mod_emm1)
+# mod_emm1.2 <- lme(
+#   yield ~  location + sowingdate_doy * crm_group +
+#     above_35 + cum_rain + cum_radn + year,
+#   random = ~1 | hybrid,
+#   weights = varIdent(form = ~1 | location),
+#   data = data.org)
+# anova(mod_emm1.2)
+```
+
+adding the effect of planting date as quadratic
+
+```{r}
+mod_emm2 <- lme(
+  yield ~  location + sowingdate_doy + sowingdate_doy2 * crm_group + above_35 + cum_rain + cum_radn + year,
+  random = ~1 | hybrid,
+  weights = varIdent(form = ~1 | location),
+  data = data.org)
+anova(mod_emm2)
+```
+
+```{r}
+IC_tab(mod_emm1, mod_emm2)
+plot(mod_emm2)
+qqnorm(resid(mod_emm2)); qqline(resid(mod_emm2))
+hist(resid(mod_emm2), breaks = 30)
+```
+
+# Getting partial r2 values
+
+```{r}
+partial_r2 <- r2beta(mod_emm2, method = "nsj", data = data.org)
+print(partial_r2)
+```
+
+```{r}
+partial_r2 %>%
+  mutate(Group = case_when(
+    grepl("crm_group|hybrid", Effect) ~ "Genetics",
+    grepl("sowingdate_doy|:crm_group", Effect) ~ "Management",
+    grepl("above_35|cum_rain|cum_radn|year|location", Effect) ~ "Environment",
+    TRUE ~ "Other")) %>%
+  group_by(Group) %>%
+  summarise(Group_R2 = sum(Rsq)) %>%
+  arrange(desc(Group_R2))
+```
+
+# By Region
+
+```{r}
+library(r2glmm)
+```
+
+```{r}
+data.org1 <- read.csv("input/Corn data organized2.csv")
+data.org1$yield <- as.numeric(data.org1$yield)
+```
+
+```{r}
+data.org1 <- data.org1 %>%
+  mutate(crm_group = case_when(
+    crm %in% c(103, 107, 108) ~ "Group_1",
+    crm %in% c(110, 111, 112, 113) ~ "Group_2",
+    crm %in% c(114, 115, 116, 117) ~ "Group_3",
+    crm %in% c(118, 119, 120, 121) ~ "Group_4"))
+data.org1 <- data.org1 %>%
+  select(location, year, hybrid, sowingdate_doy, crm, yield, week, crm_group,mean_maxt, mean_mint, cum_radn,cum_rain,above_32, above_35,week,region)
+data.org1 <- data.org1 %>%
+  mutate(sowingdate_doy2 = sowingdate_doy^2)
+
+data.org1 <- na.omit(data.org1)
+data.org1 <- data.org1 %>%
+  mutate(top10 = yield >= quantile(yield, 0.90, na.rm = TRUE)) %>%
+  ungroup()
+data.org1 <- data.org1 %>%
+  mutate(
+    year = as.factor(year),
+    location = as.factor(location),
+    yield = as.numeric(yield),
+    sowingdate.f = as.factor(sowingdate_doy),
+    crm.f = as.factor(crm_group))
+data.org1 <- data.org1 %>%
+  group_by(region)
+```
+
+```{r}
+mod_rs3 <- lme(
+  yield ~  location + sowingdate_doy + sowingdate_doy2 * crm.f +
+    above_35 + cum_rain + cum_radn + year,
+  random = ~1 | hybrid,
+  weights = varIdent(form = ~1 | location),
+  data = data.org1)
+```
+
+```{r}
+partial_r2 <- r2beta(mod_rs3, method = "nsj", data = data.org1)
+print(mod_rs3)
+```
+
+```{r}
+partial_r2 %>%
+  mutate(Group = case_when(
+    grepl("crm_group|hybrid", Effect) ~ "Genetics",
+    grepl("sowingdate_doy|:crm_group", Effect) ~ "Management",
+    grepl("above_35|cum_rain|cum_radn|year|location", Effect) ~ "Environment",
+    TRUE ~ "Other")) %>%
+  group_by(Group) %>%
+  summarise(Group_R2 = sum(Rsq)) %>%
+  arrange(desc(Group_R2))
+
+```

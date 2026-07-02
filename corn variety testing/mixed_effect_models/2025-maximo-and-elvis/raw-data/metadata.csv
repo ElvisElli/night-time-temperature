@@ -1,0 +1,18 @@
+variable,unit,source
+mean max T,C degrees,nasa power
+mean min T,C degrees,nasa power
+cum _rain,mm,nasa power
+cum rad,MJ/m2,nasa power
+avg_t ,C degrees,nasa power
+above 32,N days,nasa power
+row spacing ,m,database
+april,mm,database
+may,mm,database
+june,mm,database
+july,mm,database
+precipitation,mm,database
+yield,kg/ha,database
+year,,database
+hybrid,,database
+harvest day doy,N days,
+sowing date doy,N day,

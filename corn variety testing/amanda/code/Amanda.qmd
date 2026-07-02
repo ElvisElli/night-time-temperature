@@ -1,0 +1,212 @@
+---
+title: "Amanda"
+author: "Maximo Nores"
+format: pdf
+editor: visual
+---
+
+## 
+
+## Load Packages
+
+```{r}
+library(tidyverse)
+library(nlraa)
+library(nlme)
+library(skimr)
+library(dplyr)
+library(lubridate)
+
+library(readxl)
+```
+
+## Load Data
+
+```{r}
+amanda <- read_excel("../data/compiled.xlsx")
+amanda <- na.omit(amanda)
+```
+
+## EDT
+
+```{r}
+skim(amanda)
+```
+
+```{r}
+hist(amanda$Yld)
+boxplot(amanda$Yld)
+```
+
+## 
+
+```{r}
+amanda %>%
+  ggplot(aes(x= Test, y= Yld))+
+  geom_boxplot()+
+  theme_minimal()
+```
+
+Transform to factors
+
+```{r}
+amanda$Year <- as.factor(amanda$Year)
+#amanda$Variety <- as.factor(amanda$Variety)
+amanda$Test <- as.factor(amanda$Test)
+amanda$Block <- as.factor(amanda$Block)
+amanda$Loc <- as.factor(amanda$Loc)
+amanda$Brand <- as.factor(amanda$Brand)
+amanda$Rep <- as.factor(amanda$Rep)
+str(amanda)
+```
+
+# Fitting models
+
+```{r}
+library(lme4)
+library(lmerTest)
+```
+
+## Mod 1
+
+No interaction between test and loc
+
+```{r}
+model1 <- lmer(Yld ~ Test + Loc + (1 | Variety) + (1 | Block) + (1|Rep), data = amanda)
+```
+
+```{r}
+summary(model1)
+anova(model1)
+
+```
+
+## Mod 2
+
+model 2 includes year as a random effect
+
+```{r}
+model2 <- lmer(Yld ~ Test + Loc + (1 | Variety) + (1 | Block) + (1|Rep)+ (1|Year), data = amanda)
+```
+
+## Model 3
+
+model 3 includes the interaction between test and loc.
+
+```{r}
+model3 <- lmer(Yld ~ Test * Loc + (1 | Variety) + (1 | Block) + (1|Rep)+ (1|Year), data = amanda)
+```
+
+## Model 2
+
+Model 2 adds Brand as a random effect
+
+```{r}
+model4 <- lmer(Yld ~ Test * Loc + (1 | Variety) + (1 | Block) + (1|Rep)+ (1|Year) + (1|Brand), data = amanda)
+```
+
+## Model comaprison
+
+```{r}
+anova(model1,model2, model3, model4)
+```
+
+Model 4 is the best one, has the lowest BIC and AIC.
+
+### Checking Residuals
+
+```{r}
+qqnorm(residuals(model4))
+qqline(residuals(model4), col = "red")
+
+```
+
+```{r}
+plot(fitted(model1), residuals(model1),
+     xlab = "Fitted values",
+     ylab = "Residuals",
+     main = "Residuals vs Fitted")
+abline(h = 0, col = "red", lty = 2)
+```
+
+```{r}
+library(emmeans)
+emmeans_test <- emmeans(model4, ~ Test|Loc)
+pairs(emmeans_test, adjust = "tukey")
+```
+
+## Plasticity
+
+phenotipic plasticity (PPIK) = variance of yield for crm across env (VTIP)/ variance of all crm across env (vtk)
+
+```{r}
+amanda$env <- interaction(amanda$Loc, amanda$Year, drop= TRUE)
+
+amanda$predicted_yield <- predict(model4, newdata= amanda ,level= 0)
+```
+
+mean predicted yield by environment
+
+```{r}
+mean_pred <- amanda %>%
+  group_by(Test, env) %>%
+  summarise(mean_pred_yield = mean(predicted_yield), .groups = 'drop')
+```
+
+Variance of predicted yield by Test
+
+### VTIP
+
+```{r}
+plasticity_df <- mean_pred %>%
+  group_by(Test) %>%
+  summarise(variance_across_env = var(mean_pred_yield), .groups = 'drop')
+```
+
+### Total variance= VTK
+
+```{r}
+total_variance <- var(mean_pred$mean_pred_yield)
+```
+
+### Plasticity PPIK
+
+```{r}
+plasticity_df <- plasticity_df %>%
+  mutate(plasticity_index = variance_across_env / total_variance)
+
+print(plasticity_df)
+```
+
+```{r}
+ggplot(plasticity_df, aes(x = Test, y = plasticity_index, fill = Test)) +
+  geom_col() +
+  labs(title = "Phenotypic Plasticity by CRM Group",
+       x = "CRM ",
+       y = "Plasticity Index ") +
+  theme_minimal()
+```
+
+```{r}
+mean_yield_df <- amanda %>%
+  group_by(Test) %>%
+  summarise(mean_predicted_yield = mean(predicted_yield), .groups = "drop")
+
+combined_df <- left_join(plasticity_df, mean_yield_df, by = "Test")
+
+ggplot(combined_df, aes(x = plasticity_index, y = mean_predicted_yield, label = Test)) +
+  geom_point() +
+  geom_text(vjust = -0.5, size = 3) +
+  labs(title = "Stability (Plasticity) vs Yield",
+       x = "Plasticity Index (Lower = More Stable)",
+       y = "Mean Predicted Yield") +
+  theme_minimal()
+```
+
+Testing correlation between yield and plasticity
+
+```{r}
+cor.test(combined_df$plasticity_index, combined_df$mean_predicted_yield)
+```
+
+As plasticity increases, yield tends to decrease.

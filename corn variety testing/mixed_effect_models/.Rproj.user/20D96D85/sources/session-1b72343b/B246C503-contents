@@ -1,0 +1,27 @@
+---
+title: "mixed_effect_models"
+---
+
+## Load packages
+
+```{r}
+library(tidyverse)
+library(nlraa)
+library(skimr)
+```
+
+## Load data
+
+```{r}
+variety.testing <- read.csv("input/corn data organized1.csv")
+
+```
+
+## Exploratory analysis
+
+```{r}
+skim(variety.testing)
+str(variety.testing)
+variety.testing$yield <- as.numeric(variety.testing$yield)
+hist(variety.testing$yield)
+```

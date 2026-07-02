@@ -1,0 +1,1307 @@
+---
+title: "mixed_effect_models"
+output: pdf_document
+---
+
+## Load packages
+
+```{r}
+library(tidyverse)
+library(nlraa)
+library(nlme)
+library(skimr)
+library(dplyr)
+library(lubridate)
+```
+
+## Load data
+
+```{r}
+variety.testing <- read.csv("2025-maximo-and-elvis/raw-data/Corn data organized-10-16-2024.csv")
+```
+
+## Exploratory analysis
+
+
+```{r}
+variety.testing <- variety.testing %>%
+  mutate(CRM_group = case_when(
+    #CRM %in% c(103, 107, 108) ~ "Group_1",
+    CRM %in% c(110, 111, 112, 113) ~ "Group_2",
+    CRM %in% c(114, 115, 116, 117) ~ "Group_3",
+    CRM %in% c(118, 119, 120, 121) ~ "Group_4"))
+
+```
+
+```{r}
+fac.cols <- c('Location', 'Hybrid', 'Year', 'row_spacing', 'CRM_group')
+variety.testing[c(fac.cols)] <- lapply(variety.testing[fac.cols], function(x) as.factor(x))
+str(variety.testing)
+```
+
+Eliminating NA's
+
+```{r}
+variety.testing <- na.omit(variety.testing)
+```
+
+## Fitting Models
+
+```{r}
+mod6_loc <- lme(yield ~ CRM_group + SowingdateDOY * Location + CRM_group : Location + CRM_group:SowingdateDOY:Location,
+                random = ~ 1| Year,
+                weights = varIdent(form= ~ 1 | Location),
+                data = variety.testing)
+anova(mod6_loc)
+```
+
+# Changing approach 
+
+## Selecting upper 10% of yields 
+
+## Load packages
+
+```{r}
+library(tidyverse)
+library(nlraa)
+library(nlme)
+library(skimr)
+library(dplyr)
+library(lubridate)
+library(MuMIn)
+library(emmeans)
+```
+
+##p1
+```{r}
+var.test <- read.csv("input/Corn data organized1.csv")
+```
+
+
+```{r}
+var.test <- var.test %>%
+  mutate(crm_group = case_when(
+    crm %in% c(103, 107, 108) ~ "Group_1",
+    crm %in% c(110, 111, 112, 113) ~ "Group_2",
+    crm %in% c(114, 115, 116, 117) ~ "Group_3",
+    crm %in% c(118, 119, 120, 121) ~ "Group_4"))
+var.test <- var.test %>%
+  
+  select(location, year, hybrid, sowingdateDOY, yield, week, crm_group,mean_maxt, mean_mint, cum_radn,cum_rain,above_32, above_35,region, april, may, june, july, august, sept)
+
+var.test <- var.test %>%
+  mutate(year = as.factor(year),
+    location = as.factor(location),
+    sowingdateDOY = as.factor(sowingdateDOY),
+    crm_group = as.factor(crm_group),
+    yield= as.numeric(yield))%>%
+  na.omit(var.test)  
+#var.test <- var.test %>%
+#  mutate(SowingdateDOY2 = SowingdateDOY^2)
+#var.test <- var.test %>%
+#  group_by(week) %>%
+#  mutate(top10 = Yield >= quantile(Yield, 0.90, na.rm = TRUE)) %>%
+#  ungroup()
+```
+
+```{r}
+var.test.se <- var.test %>% 
+  filter(region== "SouthEast")
+```
+
+
+```{r}
+weather.se <- lme(yield ~ above_35 + mean_mint + cum_rain + cum_radn,
+               random = ~ 1 |year/location,
+               #weights = varIdent(form = ~1 | year),
+  data = var.test.se)
+  
+r.squaredGLMM(weather.se)
+```
+
+```{r}
+var.test.ce <- var.test %>% 
+  filter(region== "CenterEast")
+```
+
+```{r}
+weather.ce <- lme(yield ~ above_35 + mean_mint + cum_rain + cum_radn ,
+               random = ~ 1 |year/location,
+               #weights = varIdent(form = ~1 | year),
+  data = var.test.ce)
+  
+r.squaredGLMM(weather.ce)
+```
+
+
+```{r}
+var.test.ne <- var.test %>% 
+  filter(region== "NorthEast") %>% 
+  na.omit()
+```
+
+```{r}
+weather.ne <- lme(yield ~ above_35 + mean_mint + cum_rain + cum_radn,
+               random = ~ 1 |year/location,
+               #weights = varIdent(form = ~1 | year),
+  data = var.test.ne)
+  
+r.squaredGLMM(weather.ne)
+```
+
+```{r}
+weather <- lme(yield ~ above_35 + mean_mint + cum_rain + cum_radn,
+               random = ~ 1 |year/location,
+               #weights = varIdent(form = ~1 | year),
+  data = var.test)
+r.squaredGLMM(weather)
+```
+
+
+```{r}
+var.top10 %>%
+  ggplot(aes(x=SowingdateDOY, y= Yield))+
+  geom_point()+
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2))+
+  scale_x_continuous(breaks = seq(80, 145, by=5))+
+  theme_minimal()
+```
+Using entire dataset to fit the model. Then select upper 10%
+```{r}
+top.mod <- lme(
+  Yield ~ SowingdateDOY + CRM,
+  random = ~1 | Year/Location,
+  #weights = varIdent(form= ~ 1 | Year),
+  data = var.test)
+top.mod.q <- lme(
+  Yield ~ SowingdateDOY + SowingdateDOY2 + CRM ,
+  random = ~1 | Year/Location,
+  weights = varIdent(form = ~1 | Location),
+  data = var.test)
+
+anova(top.mod.q)
+IC_tab(top.mod, top.mod.q)
+plot(top.mod.q)
+qqnorm(resid(top.mod.q)); qqline(resid(top.mod.q))
+hist(resid(top.mod.q), breaks = 30)
+```
+
+Quadratic model is better
+```{r}
+top.mod1.q <- lme(
+  Yield ~ SowingdateDOY + SowingdateDOY2 + crm.f,
+  random = ~1 | Year/Location,
+  weights = varIdent(form = ~1 | Location),
+  data = var.test)
+anova(top.mod1.q)
+IC_tab(top.mod.q, top.mod1.q)
+plot(top.mod1.q)
+qqnorm(resid(top.mod1.q)); qqline(resid(top.mod1.q))
+hist(resid(top.mod1.q), breaks = 30)
+```
+
+Grabbing the upper 10% of yields from the model
+
+```{r}
+var.test <- var.test %>%
+  group_by(week) %>%
+  mutate(top10_fit = Yield >= quantile(Yield, 0.90, na.rm = TRUE)) %>%
+  ungroup()
+```
+
+
+```{r}
+mod_top_line <- lm(Yield ~ SowingdateDOY + SowingdateDOY2, 
+                   data = filter(var.test, top10_fit == TRUE))
+
+```
+
+```{r}
+newdata <- data.frame(SowingdateDOY = seq(min(var.test$SowingdateDOY),
+                                          max(var.test$SowingdateDOY),
+                                          length.out = 100))
+newdata$SowingdateDOY2 <- newdata$SowingdateDOY^2
+newdata$pred <- predict(mod_top_line, newdata)
+
+```
+
+
+```{r}
+p1 <- ggplot(var.test, aes(x= SowingdateDOY, y= Yield))+
+  geom_point(alpha= 0.1)+
+  geom_point(data= filter(var.test, top10_fit == TRUE),
+             aes(x= SowingdateDOY, y= Yield))+
+  geom_line(data= newdata,aes(x= SowingdateDOY, y= pred),
+            color= "red", size= 1.2)+
+  scale_x_continuous(breaks= seq(80,150,by= 5))+
+  scale_y_continuous(breaks= seq(150,350,by= 25))+
+  theme_minimal()+
+  theme(
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA))
+
+ggsave("output/sowingdate_yield_plot.tiff", plot = p1,
+       dpi = 600, width = 8, height = 6, units = "in", compression = "lzw", bg= "white") 
+```
+
+##p2
+
+
+```{r}
+data.org <- read_csv("input/Corn data organized2.csv",   na = c("#N/A", "NA")) 
+data.org$env <- interaction(data.org$location, data.org$year, drop= TRUE)
+```
+
+```{r}
+data.org <- data.org %>%
+  mutate(crm_group = case_when(
+    #crm %in% c(103, 107, 108) ~ "Group_1",
+    crm %in% c(110, 111, 112, 113) ~ "Group_2",
+    crm %in% c(114, 115, 116, 117) ~ "Group_3",
+    crm %in% c(118, 119, 120, 121) ~ "Group_4")) %>%
+  select(location, year, hybrid, crm, yieldkg.ha, crm_group)%>%
+  filter(year != 2020)
+  #mutate(sowing.doy2 = sowing.doy^2)
+
+data.org <- na.omit(data.org)
+data.org <- data.org %>%
+  mutate(
+    year= factor(year),
+    location = as.factor(location),
+    yieldkg.ha = as.numeric(yieldkg.ha),
+    crm_group = as.factor(crm_group),
+    hybrid = factor(hybrid))
+```
+
+
+
+```{r}
+mod_emm1.1 <- lme(
+  yieldkg.ha ~  crm_group * year,
+  random = ~1 | location,
+  #weights = varIdent(form = ~1 | location),
+  data = data.org)
+```
+
+```{r}
+plot(mod_emm1.1, which = 1)
+qqnorm(resid(mod_emm1.1))
+qqline(resid(mod_emm1.1), col = "red", lwd = 2)
+```
+
+```{r}
+emm1.1 <- emmeans(mod_emm1.1, ~ crm_group | year)
+emm_df1.1 <- as.data.frame(emm1.1)
+```
+
+```{r}
+p2 <- ggplot(emm_df1.1, aes(x = year, y = emmean, color = crm_group,
+                         group = crm_group))+
+  geom_point(size = 3) +
+  geom_line(size = 1.2) +
+  geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE), width = 0.2) +
+  scale_color_manual(
+    values = c("#1b9e77","#fc8d62","#1f78b4","#525252")) +
+  labs(
+    x = "Year",
+    y = "Adjusted Yield (kg ha⁻¹)",
+    color = "CRM Group") +
+  theme_minimal()+scale_color_manual(
+  values = c("#1b9e77","#fc8d62","#1f78b4","#525252"),
+  labels = c(
+    "Group 2 (110d–113d)",
+    "Group 3 (114d–117d)",
+    "Group 4 (118d–121d)")) +
+  theme(
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA))
+ggsave("output/emmeans.year.crm_group.tiff", plot = p2,
+       dpi = 600, width = 8, height = 6, units = "in", compression = "lzw", bg= "white")
+```
+
+## emmeans
+```{r}
+library(dplyr)
+library(tidyverse)
+library(nlme)
+library(nlraa)
+library(r2glmm)
+library(janitor)
+library(biometryassist)
+library(emmeans)
+```
+
+##p4
+
+```{r}
+data.org <- read_csv("input/Corn data organized2.csv", na = c("#N/A", "NA")) %>%
+  mutate(
+    crm_group = case_when(
+      crm %in% c(103, 107, 108) ~ "Group_1",
+      crm %in% c(110, 111, 112, 113) ~ "Group_2",
+      crm %in% c(114, 115, 116, 117) ~ "Group_3",
+      crm %in% c(118, 119, 120, 121) ~ "Group_4"),
+    location = factor(location),
+    year = factor(year),
+    hybrid = factor(hybrid),
+    region = factor(region),
+    yieldkg.ha = as.numeric(yieldkg.ha)) %>%
+  select(location, year, hybrid, crm_group, region, sowing.doy, yieldkg.ha) %>%
+  na.omit() %>%
+  mutate(env = interaction(location, year, drop = TRUE))
+```
+
+```{r}
+mod_simple <- lme(yieldkg.ha ~ env, random = ~1 | hybrid, data = data.org)
+
+emm_df2 <- as.data.frame(emmeans(mod_simple, ~ env)) %>%
+  separate(env, into = c("location", "year"), sep = "\\.", remove = FALSE) %>%
+  mutate(
+    location = factor(location, levels = c("Harrisburg","Keiser",
+                                           "Marianna",
+                                           "Des_Arc","Rohwer","Stuttgart")),
+    year = factor(year))
+```
+
+```{r}
+loc_labels <- c(
+  Harrisburg = "NorthEast 1",
+  Keiser     = "NorthEast 2",
+  Marianna   = "CenterEast 1",
+  Des_Arc   = "CenterEast 2",
+  Rohwer     = "SouthEast 1",
+  Stuttgart  = "SouthEast 2")
+```
+
+```{r}
+data.org <- data.org %>%
+  mutate(location = factor(location, 
+                           levels = c("Harrisburg","Keiser", # NorthEast
+                                      "Marianna","Des_Arc",                # CenterEast
+                                      "Rohwer","Stuttgart")))      # SouthEast
+```
+
+
+```{r}
+p4 <- ggplot(data.org, aes(x = location, y = yieldkg.ha, color = location)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(data = emm_df2, 
+             aes(x = location, y = emmean, group = year, color = location),
+             position = position_dodge(width = 0.6), size = 3, inherit.aes = FALSE) +
+  geom_errorbar(data = emm_df2,
+                aes(x = location, ymin = lower.CL, ymax = upper.CL, group = year, color = location),
+                width = 0.15, position = position_dodge(width = 0.6), inherit.aes = FALSE) +
+  scale_x_discrete(labels = loc_labels) +
+  guides(color = "none") +
+  labs(
+  x = "Region",
+  y = "Yield (kg ha⁻¹)",
+  caption = paste(
+    "NorthEast 1 = Harrisburg;",
+    "NorthEast 2 = Keiser;",
+    "CenterEast 1 = Marianna;",
+    "CenterEast 2 = Des Arc;",
+    "SouthEast 1 = Rohwer;",
+    "SouthEast 2 = Stuttgart")) +
+  theme_minimal() +
+  theme(
+    axis.text.x   = element_text(size = 12),
+    axis.text.y   = element_text(size = 12),
+    axis.title    = element_text(size = 14), 
+    plot.caption  = element_text(hjust = 0,  size = 10),
+    plot.background  = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA))
+ggsave("output/boxplots.tiff", plot = p4,
+       dpi = 600, width = 11, height = 6, units = "in", compression = "lzw")
+```
+
+```{r}
+data.org <- read_csv("input/Corn data organized2.csv",   na = c("#N/A", "NA"))
+data.org$env <- interaction(data.org$location, data.org$year, drop= TRUE)
+```
+
+```{r}
+data.org <- data.org %>%
+  mutate(crm_group = case_when(
+    crm %in% c(103, 107, 108) ~ "Group_1",
+    crm %in% c(110, 111, 112, 113) ~ "Group_2",
+    crm %in% c(114, 115, 116, 117) ~ "Group_3",
+    crm %in% c(118, 119, 120, 121) ~ "Group_4")) %>%
+  select(location, year, hybrid,crm,sowing.doy, yield,yieldkg.ha,
+         crm_group,env,region) %>%
+  #filter(year != 2020)
+  mutate(sowing.doy2 = sowing.doy^2)
+
+data.org <- na.omit(data.org)
+data.org <- data.org %>%
+  group_by(year) %>% 
+  #mutate(unity = 1:length(year)) %>%
+  ungroup() %>% 
+  mutate(
+    location = as.factor(location),
+    yieldkg.ha = as.numeric(yieldkg.ha),
+    crm_group = as.factor(crm_group),
+    region= factor(region),
+    env= factor(env))
+```
+
+```{r}
+mod_emm2.1 <- lme(yield ~ env + sowing.doy + sowing.doy2 * crm_group,
+  random = ~1 | hybrid,
+ weights = varIdent(form = ~1 | location),
+  data = data.org)
+summary(mod_emm2.1)
+```
+
+mod_emm2 <- lme(yield ~ sowing.doy + sowing.doy2 * crm_group + cum_rain + cum_radn + mean_maxt + year,
+  random = ~1 | hybrid,
+ weights = varIdent(form = ~1 | location),
+  data = data.org)
+summary(mod_emm2)
+
+```{r}
+plot(mod_emm2.1, which = 1)
+qqnorm(resid(mod_emm2.1))
+qqline(resid(mod_emm2.1), col = "red", lwd = 2)
+```
+
+#emmeans
+```{r}
+emm_mod2 <- emmeans(mod_emm2.1, ~ env)
+summary(emm_mod2)
+emm_df2 <- as.data.frame(emmeans(mod_emm2.1, ~ env))
+```
+
+```{r}
+emm <- emmeans(mod_emm2, ~ crm_group | year)
+emm_df <- as.data.frame(emm)
+```
+
+
+```{r}
+emm_df2 <- emm_df2 |>
+  separate(env, into = c("location", "year"), sep = "\\.", remove = FALSE)
+loc_order <- c("Harrisburg", "Keiser", "Marianna", "Bellfarm", "Rohwer", "Stuttgart")
+data.org$location  <- factor(data.org$location,  levels = loc_order)
+emm_df2$location   <- factor(emm_df2$location,   levels = loc_order)
+emm_df2$year       <- factor(emm_df2$year)
+
+```
+
+
+```{r}
+loc_labels <- c(
+  Harrisburg = "NorthEast",
+  Keiser     = "NorthEast",
+  Marianna   = "CenterEast",
+  Bellfarm   = "CenterEast",
+  Rohwer     = "SouthEast",
+  Stuttgart  = "SouthEast")
+```
+
+#Yield across locations
+```{r}
+ p3 <- ggplot(data.org, aes(x = location, y = yield, color = location)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(
+    data = emm_df2,
+    aes(x = location, y = emmean, group = year, color = location),
+    position = position_dodge(width = 0.6),
+    size = 3,
+    inherit.aes = FALSE) +
+  geom_errorbar(data = emm_df2,
+    aes(x = location, ymin = lower.CL, ymax = upper.CL,
+        group = year, color = location),
+    width = 0.15,
+    position = position_dodge(width = 0.6),
+    inherit.aes = FALSE) +
+  scale_x_discrete(labels = loc_labels) +
+  guides(color = "none") +
+  labs(x = "Region", y = "Yield",
+       title = "Observed vs. Model-Estimated Corn Yields by Region") +
+  theme_minimal()+
+  theme(plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA))
+ggsave("output/Observed vs. Model-Estimated Corn Yields across Locations.tiff", plot = p3,
+       dpi = 600, width = 8, height = 6, units = "in", compression = "lzw")
+```
+
+
+```{r}
+ggplot(data.org, aes(x = location, y = yield, color = location)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.3, alpha = 0.2) +
+  theme_minimal()
+```
+#p4
+
+```{r}
+data.org <- na.omit(data.org)
+data.org <- data.org %>% mutate(week = as.character(week))
+
+week_levels <- c(
+  "march 23- march 29",
+  "march 30- april 5",
+  "april 6- april 12",
+  "april 13- april 19",
+  "april 20-april 26",
+  "april 27- may 3",
+  "may 11- may 17",
+  "may 18- may 24")
+wk <- data.org %>%
+  group_by(week)%>%
+  summarise(
+    n          = sum(!is.na(Yield)),
+    mean_yield = mean(Yield, na.rm = TRUE),
+    sd         = ifelse(n > 1, sd(Yield, na.rm = TRUE), NA_real_),
+    se         = ifelse(n > 1, sd / sqrt(n), NA_real_),
+    .groups = "drop") %>%
+  mutate(week = factor(week, levels = week_levels))
+
+```
+
+```{r}
+ggplot(wk, aes(x = week, y = mean_yield)) +
+  geom_col() +
+  geom_errorbar(aes(ymin = mean_yield - 1.96*se,
+                    ymax = mean_yield + 1.96*se),
+                width = 0.2) +
+  scale_y_continuous(breaks = seq(20,260,by= 20))+
+  theme_minimal()
+```
+#p5
+
+```{r}
+ggplot(data.org, aes(x = week, y = yield)) +
+  geom_boxplot(outlier.alpha = 0.2) +
+  theme_minimal() 
+```
+
+#p6
+
+```{r}
+mod <- lme(yield ~ crm_group + week + above_35 + cum_rain,
+  random = ~1 | year/location,
+  data = data.org)
+emm_df3 <- emmeans(mod, ~ crm_group) %>%
+  as.data.frame()
+
+ggplot(emm_df3, aes(x = crm_group, y = emmean, fill = crm_group)) +
+  geom_col() +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2) +
+  labs(x = "CRM group", y = "Adjusted Yield") +
+  theme_minimal()
+anova(mod)
+pairs(emmeans(mod, ~ crm_group))
+
+```
+
+```{r}
+crm_levels <- c("Group_1","Group_2","Group_3","Group_4")
+
+crm <- data.org %>%
+  group_by(CRM_group) %>%
+  summarise(
+    n          = sum(!is.na(Yield)),
+    mean_yield = mean(Yield, na.rm = TRUE),
+    sd         = ifelse(n > 1, sd(Yield, na.rm = TRUE), NA_real_),
+    se         = ifelse(n > 1, sd / sqrt(n), NA_real_),
+    .groups = "drop") %>%
+  mutate(CRM_group = factor(CRM_group, levels = crm_levels))
+
+ggplot(crm, aes(x = CRM_group, y = mean_yield)) +
+  geom_col() +
+  geom_errorbar(aes(ymin = mean_yield - 1.96 * se,
+                    ymax = mean_yield + 1.96 * se),
+                width = 0.2) +
+  scale_y_continuous(breaks = seq(20, 260, by = 20)) +
+  labs(x = "CRM group", y = "Mean yield") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(data.org, aes(x = CRM_group, y = Yield)) +
+  geom_boxplot(outlier.alpha = 0.2) +
+  theme_minimal() 
+```
+
+
+###weather
+
+```{r}
+weather <- read.csv("input/weather_monthly_summary.csv")
+
+```
+
+```{r}
+weather_summary <- weather %>%
+  mutate(month = factor(month, levels = month.name)) %>%
+  group_by(location, month) %>%
+  summarise(
+    mean_avg_t = mean(avg_t, na.rm = TRUE),
+    mean_mint = mean(mint,na.rm= TRUE),
+    mean_cum_rain = mean(cum_rain, na.rm = TRUE),
+    mean_precipitation = mean(precipitation,na.rm = TRUE),
+    .groups = "drop")
+
+```
+
+```{r}
+loc_labels <- c(
+  Des_Arc         = "CenterEast (Des Arc)",
+  harrisburg_neerec = "NorthEast (Harrisburg)",
+  keiser_nere       = "NorthEast (Keiser)",
+  marianna          = "CenterEast (Marianna)",
+  rohwer            = "SouthEast (Rohwer)",
+  stuttgart         = "SouthEast (Stuttgart)")
+weather_summary <- weather_summary %>%
+  mutate(region = loc_labels[location])
+```
+
+
+#p7: average temperature
+
+```{r}
+ weather_summary %>%
+  drop_na() %>% 
+  ggplot(aes(x = month, y = mean_avg_t, color = region, group = region)) +
+  geom_line(size = 1.1, linetype = "dashed") +
+  geom_point(size = 3, stroke = 0.8) +
+  scale_y_continuous(breaks = seq(10, 30, by = 2)) +
+  scale_x_discrete(
+    limits = c("April", "May", "June", "July", "August", "September"),
+    labels = c("Apr", "May", "Jun", "Jul", "Aug", "Sep")) +
+  scale_color_brewer(
+    palette = "Dark2",
+    name   = "Region") +
+  labs(
+    x = "Month",
+    y = "Mean Avg Temp (°C)",
+    title = "Monthly Average Temperature by Region") +
+  theme_minimal(base_size = 14) 
+  
+ggsave("output/avg_temperature.tiff", plot = avg_temperature,
+       dpi = 600, width = 8, height = 6, units = "in", compression = "lzw")
+```
+
+## Average rainfall
+```{r}
+ avg_rainfall <- weather_summary %>%
+  filter(!(region == "NorthEast (Harrisburg)" & month == "September")) %>%
+  ggplot(aes(x = month, y = mean_precipitation, color = region,
+             group = region)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_y_continuous(breaks = seq(20, 200, by = 20)) +
+  labs(
+    x = "Month",
+    y = "Mean cumulative rain (mm)",
+    color = NULL) +
+  theme_minimal() +
+  theme(
+    panel.grid.minor = element_blank(),
+    legend.position = "right",
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA))
+ggsave("output/avg_rainfall.tiff", plot = avg_rainfall,
+       dpi = 600, width = 8, height = 6, units = "in", compression = "lzw", background = "white")
+```
+
+```{r}
+minimumT <- weather_summary %>%
+ # filter(!(region == "NorthEast (Harrisburg)" & month == "September")) %>%
+  ggplot(aes(x = month, y = mean_mint, color = region,
+             group = region)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_y_continuous(breaks = seq(10, 24, by = 2)) +
+  labs(
+    x = "Month",
+    y = "Mean minimum Temperature (°C)",
+    color = NULL) +
+  theme_minimal() +
+  theme(
+    panel.grid.minor = element_blank(),
+    legend.position = "right",
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA))
+ggsave("output/NT.across.months.tiff", plot = minimumT,
+       dpi = 600, width = 8, height = 6, units = "in", compression = "lzw", background = "white")
+```
+
+
+
+
+##Environmental model
+#All locations together
+
+```{r}
+data.org <- read.csv("input/Corn data organized2.csv")
+data.org$Yield <- as.numeric(data.org$Yield)
+```
+
+
+```{r}
+data.org <- data.org %>%
+  mutate(CRM_group = case_when(
+    CRM %in% c(103, 107, 108) ~ "Group_1",
+    CRM %in% c(110, 111, 112, 113) ~ "Group_2",
+    CRM %in% c(114, 115, 116, 117) ~ "Group_3",
+    CRM %in% c(118, 119, 120, 121) ~ "Group_4"))
+data.org <- data.org %>%
+  select(Location, Year, Hybrid, SowingdateDOY, CRM, Yield, week, CRM_group,
+         mean_maxt, mean_mint, cum_radn,cum_rain,above_32, above_35,week,region)
+data.org <- data.org %>%
+  mutate(SowingdateDOY2 = SowingdateDOY^2)
+
+data.org <- na.omit(data.org)
+data.org <- data.org %>%
+  mutate(top10 = Yield >= quantile(Yield, 0.90, na.rm = TRUE)) %>%
+  ungroup()
+data.org <- data.org %>%
+  mutate(
+    Year = as.factor(Year),
+    Location = as.factor(Location),
+    Yield = as.numeric(Yield),
+    sowingdate.f = as.factor(SowingdateDOY),
+    crm.f = as.factor(CRM_group))
+```
+
+
+check correlation between variables
+```{r}
+pairs(data.org[, c("yield", "mean_maxt", "mean_mint", "cum_radn", "cum_rain", "above_32", "above_35", "SowingdateDOY")])
+```
+
+
+```{r}
+mod_emm1 <- lme(
+  Yield ~  region + SowingdateDOY * CRM_group +
+    above_35 + cum_rain + cum_radn + Year,
+  random = ~1 | Location,
+  weights = varIdent(form = ~1 | region),
+  data = data.org)
+anova(mod_emm1)
+mod_emm1.2 <- lme(
+  Yield ~  Location + SowingdateDOY * CRM_group +
+    above_35 + cum_rain + cum_radn + Year,
+  random = ~1 | Hybrid,
+  weights = varIdent(form = ~1 | Location),
+  data = data.org)
+anova(mod_emm1.2)
+
+```
+adding the effect of planting date as quadratic
+```{r}
+mod_emm2 <- lme(
+  Yield ~  Location + SowingdateDOY + SowingdateDOY2 * CRM_group +
+    above_35 + cum_rain + cum_radn + Year,
+  random = ~1 | Hybrid,
+  weights = varIdent(form = ~1 | Location),
+  data = data.org)
+anova(mod_emm2)
+
+```
+
+```{r}
+IC_tab(mod_emm1, mod_emm2)
+plot(mod_emm2)
+qqnorm(resid(mod_emm2)); qqline(resid(mod_emm2))
+hist(resid(mod_emm2), breaks = 30)
+```
+
+```{r}
+library(r2glmm)
+```
+
+```{r}
+partial_r2 <- r2beta(mod_emm2, method = "nsj", data = data.org)
+print(partial_r2)
+```
+
+```{r}
+data.org <- data.org %>%
+  mutate(Location = str_trim(Location)) %>%           
+  filter(tolower(Location) != "harrisburg") 
+by_location <- split(data.org, data.org$Location)
+
+results <- map_df(by_location, function(df) {
+  mod <- lme(
+    Yield ~ SowingdateDOY + SowingdateDOY2 * CRM_group +
+      above_35 + cum_rain + cum_radn,
+    random = ~1 | Year/Hybrid,
+    data = df)
+  
+  r2s <- r2beta(mod, method = "nsj", data = df)
+  r2s$Location <- unique(df$Location)
+  return(r2s)
+})
+```
+
+
+```{r}
+mod_rs <- lme(
+  Yield ~ SowingdateDOY + SowingdateDOY2 * CRM_group +
+    above_35 + cum_rain + cum_radn,
+  random = ~ SowingdateDOY | Location,
+  weights = varIdent(form = ~1 | Location),
+  data = data.org)
+mod_rs2 <- lme(
+  Yield ~  Location + SowingdateDOY + SowingdateDOY2 * CRM_group +
+    above_35 + cum_rain + cum_radn + Year,
+  random = ~1 | Hybrid,
+  weights = varIdent(form = ~1 | Location),
+  data = data.org)
+
+IC_tab(mod_rs, mod_rs2)
+```
+
+```{r}
+partial_r2 <- r2beta(mod_rs2, method = "nsj", data = data.org)
+print(mod_rs2)
+```
+
+```{r}
+partial_r2 %>%
+  mutate(Group = case_when(
+    grepl("CRM_group|Hybrid", Effect) ~ "Genetics",
+    grepl("SowingdateDOY|:CRM_group", Effect) ~ "Management",
+    grepl("above_35|cum_rain|cum_radn|Year|Location", Effect) ~ "Environment",
+    TRUE ~ "Other")) %>%
+  group_by(Group) %>%
+  summarise(Group_R2 = sum(Rsq)) %>%
+  arrange(desc(Group_R2))
+
+```
+
+# By Region
+
+```{r}
+library(r2glmm)
+```
+
+
+```{r}
+data.org1 <- read.csv("input/Corn data organized2.csv")
+data.org1$Yield <- as.numeric(data.org1$Yield)
+```
+
+
+```{r}
+data.org1 <- data.org1 %>%
+  mutate(CRM_group = case_when(
+    CRM %in% c(103, 107, 108) ~ "Group_1",
+    CRM %in% c(110, 111, 112, 113) ~ "Group_2",
+    CRM %in% c(114, 115, 116, 117) ~ "Group_3",
+    CRM %in% c(118, 119, 120, 121) ~ "Group_4"))
+data.org1 <- data.org1 %>%
+  select(Location, Year, Hybrid, SowingdateDOY, CRM, Yield, week, CRM_group,
+         mean_maxt, mean_mint, cum_radn,cum_rain,above_32, above_35,week,region)
+data.org1 <- data.org1 %>%
+  mutate(SowingdateDOY2 = SowingdateDOY^2)
+
+data.org1 <- na.omit(data.org1)
+data.org1 <- data.org1 %>%
+  mutate(top10 = Yield >= quantile(Yield, 0.90, na.rm = TRUE)) %>%
+  ungroup()
+data.org1 <- data.org1 %>%
+  mutate(
+    Year = as.factor(Year),
+    Location = as.factor(Location),
+    Yield = as.numeric(Yield),
+    sowingdate.f = as.factor(SowingdateDOY),
+    crm.f = as.factor(CRM_group))
+data.org1 <- data.org1 %>%
+  group_by(region)
+```
+
+```{r}
+mod_rs3 <- lme(
+  Yield ~  Location + SowingdateDOY + SowingdateDOY2 * crm.f +
+    above_35 + cum_rain + cum_radn + Year,
+  random = ~1 | Hybrid,
+  weights = varIdent(form = ~1 | Location),
+  data = data.org1)
+```
+
+```{r}
+partial_r2 <- r2beta(mod_rs3, method = "nsj", data = data.org1)
+print(mod_rs3)
+```
+
+```{r}
+partial_r2 %>%
+  mutate(Group = case_when(
+    grepl("CRM_group|Hybrid", Effect) ~ "Genetics",
+    grepl("SowingdateDOY|:CRM_group", Effect) ~ "Management",
+    grepl("above_35|cum_rain|cum_radn|Year|Location", Effect) ~ "Environment",
+    TRUE ~ "Other")) %>%
+  group_by(Group) %>%
+  summarise(Group_R2 = sum(Rsq)) %>%
+  arrange(desc(Group_R2))
+
+```
+
+
+
+## Fitting one model per Region
+previous model has one single slope for all regions son it cant quantify the effect of each factor by region.
+
+```{r}
+df_NE <- data.org1 %>%
+  filter(region == "NorthEast")
+summary(df_NE)
+```
+
+
+```{r}
+mod_NE <- lme(
+  Yield ~ Year +SowingdateDOY + SowingdateDOY^2 * crm.f +
+            above_35 + cum_rain + cum_radn,
+  random  = list(Hybrid = ~1),
+  #weights = varIdent(form = ~1 | Location), 
+  data = df_NE)
+summary(mod_NE)
+```
+## Variance partitioning
+
+
+
+```{r}
+df_CE <- data.org1 %>%
+  filter(region == "CenterEast")
+summary(df_CE)
+```
+
+```{r}
+mod_CE <- lme(
+  Yield ~ Location + Year + SowingdateDOY + SowingdateDOY^2 * crm.f +
+            above_35 + cum_rain + cum_radn,
+  random  = list(Hybrid = ~1),
+  weights = varIdent(form = ~1 | Location), 
+  data = df_CE)
+summary(mod_CE)
+```
+
+```{r}
+plot(df_CE$Yield)
+hist(df_CE$Yield)
+```
+
+##
+##Correlation of weather variables with yield
+
+
+```{r}
+ climate_vars <- c("mean_mint","cum_radn","cum_rain",
+                  "above_35", "april","may","june","july", "sowingdate_doy", "crm")
+
+df_cor <- df %>%
+  select(yield, all_of(climate_vars)) %>%
+  drop_na()
+
+
+cor_mat <- cor(df_cor, method = "pearson")
+
+
+cor_melt <- melt(cor_mat, varnames = c("Variable1", "Variable2"), value.name = "Correlation")
+
+# filtrar solo correlaciones con yield
+cor_yield <- cor_melt %>% filter(Variable1 == "yield" & Variable2 != "yield")
+
+# heatmap simple (ordenado)
+p8 <- ggplot(cor_yield, aes(x = reorder(Variable2, Correlation), y = Correlation, fill = Correlation)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_gradient2(low = "red", mid = "white", high = "blue", midpoint = 0) +
+  labs(x = "", y = "Pearson correlation with Yield (tn/ha)",
+       title = "Correlation between climatic variables and corn yield") +
+  theme_minimal(base_size = 13)
+ggsave(plot = p8, "output/correlation.tiff", width = 8, height = 7 , unit = "in", dpi = 600,bg="white")
+```
+
+
+## model
+
+##################################################################################
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(nlme)
+library(MuMIn)
+library(performance)
+library(reshape2)   
+library(tidyr)
+library(tibble)
+```
+
+
+```{r}
+df <- read.csv("input/Corn data organized1.csv", stringsAsFactors = FALSE)
+df <- df %>% mutate(yield = as.numeric(yield)) %>% filter(!is.na(yield))
+
+```
+
+```{r}
+climate_vars <- c("mean_mint","cum_radn","cum_rain","above_35","april","may","june","july")
+```
+
+```{r}
+label_map <- c(
+  mean_mint = "Avg min T",
+  cum_radn  = "Cumulative radiation",
+  cum_rain  = "Cumulative rain",
+  above_35  = "Days with T >35",      
+  april     = "April",
+  may       = "May",
+  june      = "June",
+  july      = "July")
+```
+
+```{r}
+df_cor <- df %>%
+  select(yield, all_of(climate_vars)) %>%
+  drop_na()
+
+cor_mat <- cor(df_cor, method = "pearson")
+cor_melt <- melt(cor_mat, varnames = c("Variable1", "Variable2"), value.name = "Correlation")
+cor_yield <- cor_melt %>%
+  filter(Variable1 == "yield" & Variable2 != "yield") %>%
+  mutate(Variable2 = factor(Variable2, levels = Variable2[order(Correlation)]),
+         label = label_map[as.character(Variable2)])
+```
+
+```{r}
+correlation <- ggplot(cor_yield, aes(x = reorder(label, Correlation), y = Correlation, fill = Correlation)) +
+  geom_col(width = 0.7, color = "gray30") +
+  coord_flip() +
+  scale_fill_gradient2(low = "#D73027", mid = "white", high = "#4575B4", midpoint = 0,
+                       guide = guide_colorbar(barwidth = 12, barheight = 0.6)) +
+  geom_text(aes(label = sprintf("%.2f", Correlation)), 
+            hjust = -0.2, size = 5, fontface = "bold", color = "black") +
+  labs(x = NULL,
+       y = "Pearson correlation with yield (t ha⁻¹)",
+       title = "Correlation between climatic variables and corn yield") +
+  theme_classic(base_size = 25) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 14, color = "black"),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.position = "none",
+    plot.margin = margin(8, 50, 8, 8)) +
+  expand_limits(y = max(cor_yield$Correlation) * 1.12) 
+ggsave("output/correlation.tiff", plot = correlation,
+       dpi = 600, width = 8, height = 6, units = "in", compression = "lzw", bg= "white")
+```
+
+
+
+##model
+
+```{r}
+vars_sel <- c("mean_mint","cum_radn","cum_rain","above_35",
+              "april","may","june","july")
+
+data_model <- df %>%
+  select(yield, year, location, hybrid, all_of(vars_sel)) %>%
+  drop_na()
+```
+
+```{r}
+vars_ok <- vars_sel[sapply(data_model[vars_sel], function(x) sd(x, na.rm = TRUE) > 0)]
+
+data_model <- data_model %>%
+  mutate(across(all_of(vars_ok), ~ as.numeric(scale(.x)), .names = "z_{col}"))
+
+z_vars <- paste0("z_", vars_ok)
+```
+
+
+```{r}
+form_fixed <- as.formula(paste("yield ~", paste(z_vars, collapse = " + ")))
+
+m_climate <- lme(
+  fixed   = form_fixed,
+  random  = ~ 1 | year/location/hybrid,
+  data    = data_model,
+  method  = "REML",
+  control = nlme::lmeControl(msMaxIter = 200, msMaxEval = 200))
+
+summary(m_climate)
+```
+
+```{r}
+coef_rank <- summary(m_climate)$tTable %>%
+  as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  dplyr::filter(!grepl("(Intercept)", variable)) %>%
+  mutate(abs_effect = abs(Value)) %>%
+  arrange(desc(abs_effect)) %>%
+  select(variable, Value, Std.Error, `t-value`, `p-value`, abs_effect)
+
+print(coef_rank)
+```
+
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(nlme)
+library(MuMIn)
+library(dplyr)
+```
+
+```{r}
+df <- read.csv("input/Corn data organized1.csv", stringsAsFactors = FALSE)
+```
+
+
+```{r}
+data_model <- df %>%
+  select(yield, year, location, hybrid, mean_mint, above_35, cum_radn, cum_rain, april, may, june, july,
+         august, sept)  %>% 
+  mutate(yield= as.numeric(yield),
+                above_35 = as.numeric(above_35))%>%
+  drop_na()
+```
+
+```{r}
+m_climate <- lme(
+  fixed   = yield ~ mean_mint + above_35 + cum_rain + cum_radn + april + may +
+    june + july + august + sept,
+  random  = ~ 1 |location/hybrid,
+  data    = data_model,
+  method  = "REML",
+  control = lmeControl(msMaxIter = 200, msMaxEval = 200))
+summary(m_climate)
+```
+
+```{r}
+r2_vals <- r.squaredGLMM(m_climate)
+r2_vals
+```
+
+
+```{r}
+coef_rank <- summary(m_climate)$tTable %>%
+  as.data.frame() %>%
+ rownames_to_column("variable") %>%
+  filter(!grepl("(Intercept)", variable)) %>%
+  mutate(abs_effect = abs(Value)) %>%
+  arrange(desc(abs_effect)) %>%
+  select(variable, Value, Std.Error, `t-value`, `p-value`, abs_effect)
+
+print(coef_rank)
+
+ggplot(coef_rank, aes(x = reorder(variable, abs_effect), y = abs_effect)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(x = NULL, y = "Absolute effect size (|β|)",
+       title = "Relative importance of climate predictors (raw units)") +
+  theme_classic(base_size = 16)
+```
+
+### all variables are in different units so I need to scale them
+Z scores final graph
+
+
+```{r}
+df <- read.csv("input/Corn data organized2.csv", stringsAsFactors = FALSE)
+data_model <- df %>%
+  select(yield, year, location, hybrid, mean_mint, above_35, cum_radn.j,vpd, april, may, june, july,august, sept, precipitation) %>% 
+  mutate(yield= as.numeric(yield),
+                above_35 = as.numeric(above_35))%>%
+  drop_na()
+```
+
+```{r}
+data_model_z <- data_model %>%
+  mutate(
+    z_mean_mint = as.numeric(scale(mean_mint)),
+    z_above_35  = as.numeric(scale(above_35)),
+    z_precipitation  = as.numeric(scale(precipitation)),
+    z_cum_radn  = as.numeric(scale(cum_radn.j)),
+    z_vpd       = as.numeric(scale(vpd)),
+    z_april     = as.numeric(scale(april)),
+    z_may       = as.numeric(scale(may)),
+    z_june      = as.numeric(scale(june)),
+    z_july      = as.numeric(scale(july)),
+    z_august    = as.numeric(scale(august)),
+    z_sept      = as.numeric(scale(sept)))
+```
+
+
+```{r}
+m_climate_z <- lme(
+  fixed  = yield ~ z_mean_mint + z_above_35 + z_cum_radn + z_vpd + z_april +
+    z_may  + z_july + z_august + z_sept,
+  random = ~ 1 | location/hybrid,
+  weights = varIdent(form = ~1 | location),  
+  data   = data_model_z,
+  method = "REML")
+```
+
+```{r}
+qqnorm(residuals(m_climate_z))
+qqline(residuals(m_climate_z), col = "red", lwd = 2)
+#plot(m_climate_z$residuals)
+```
+
+```{r}
+coef_rank_z <- summary(m_climate_z)$tTable %>%
+  as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  filter(variable != "(Intercept)") %>%
+  mutate(abs_effect = abs(Value)) %>%
+  arrange(desc(abs_effect)) %>%
+  select(variable, Value, Std.Error, `t-value`, `p-value`, abs_effect)
+
+print(coef_rank_z)
+```
+
+```{r}
+coef_rank_z <- coef_rank_z %>%
+  mutate(variable = str_replace(variable, "z_mean_mint", "Avg min T"),
+         variable = str_replace(variable, "z_above_35", "Days T > 35°C"),
+         variable = str_replace(variable, "z_cum_rain", "Cumulative rain"),
+         variable = str_replace(variable, "z_cum_radn", "Cumulative radiation"),
+         variable = str_replace(variable, "z_april", "Apr (mm)"),
+         variable = str_replace(variable, "z_may", "May (mm)"),
+         variable = str_replace(variable, "z_june", "Jun (mm)"),
+         variable = str_replace(variable, "z_july", "Jul (mm)"),
+         variable = str_replace(variable, "z_august", "Aug (mm)"),
+         variable = str_replace(variable, "z_sept", "Sep (mm)"))
+```
+
+
+```{r}
+standardized <-  ggplot(coef_rank_z, aes(x = reorder(variable, abs_effect), y = abs_effect, fill = abs_effect)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = sprintf("%.2f", abs_effect)), hjust = -0.2, size = 4.5, family = "sans") +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  coord_flip() +
+  labs(
+    x = NULL,
+    y = expression("Absolute standardized effect size (|"*beta*"|)"),
+    title = "Relative importance of climate predictors") +
+  theme_classic(base_size = 16) +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_text(face = "bold"),
+    axis.title.x = element_text(face = "bold"),
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5),
+    axis.text = element_text(color = "black"),
+    axis.ticks = element_line(color = "gray40"),
+    panel.grid.major.x = element_line(color = "gray85", linetype = "dotted"),
+    legend.position = "none",
+    plot.margin = margin(10, 30, 10, 10)) +
+  expand_limits(y = max(coef_rank_z$abs_effect) * 1.15)
+ggsave(plot = standardized, "output/standardized.tiff",
+        width = 8, height = 7, unit = "in", dpi = 600, bg = "white")
+```
+
+
+
+
