@@ -60,3 +60,19 @@ needed — the POWER REST API call and the NOAA solar-position math are inline.
 All knobs are at the top of the script: `WINDOW_START_DOY`/`WINDOW_END_DOY`
 (exposure window), `NIGHT_ELEV_DEG` (`0` = horizon, `-6` = civil twilight for a
 sensitivity check), `LOCAL_UTC_OFFSET`, and the location-name map.
+
+## Companion script: refit with night-time temperature
+
+`refit_nighttime_vs_tmin.R` reads `../outputs/nighttime_temperature_paired.csv`,
+refits the paper's mixed model with the dark-period `nightT` swapped in for
+`mean_mint` (same random/variance structure), and compares the yield sensitivity.
+Run it after `nighttime_temperature.R`:
+
+```bash
+Rscript refit_nighttime_vs_tmin.R
+```
+
+Outputs to `../outputs/`: `refit_comparison.csv`, `refit_sensitivity.csv`,
+`refit_sensitivity.png`, `refit_comparison_report.md`. Result: the −3.7%/°C Tmin
+penalty is reproduced, and the dark-period metric gives −4.7%/°C with a
+marginally better fit — the finding is robust to the temperature definition.
